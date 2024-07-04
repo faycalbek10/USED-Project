@@ -1,0 +1,110 @@
+import cv2
+import numpy as np
+import tkinter as tk
+from PIL import Image, ImageTk
+
+# Define the coordinates of the parking slots (top-left and bottom-right corners)
+# Arranged in two rows of four slots each, with equal spacing
+slot_width, slot_height = 100, 150
+horizontal_spacing, vertical_spacing = 50, 50
+row_spacing = 150  # Increased vertical space between the two rows
+
+slots = [
+    ((i * (slot_width + horizontal_spacing) + horizontal_spacing, vertical_spacing), 
+     (i * (slot_width + horizontal_spacing) + horizontal_spacing + slot_width, vertical_spacing + slot_height))
+    for i in range(4)
+] + [
+    ((i * (slot_width + horizontal_spacing) + horizontal_spacing, vertical_spacing + slot_height + row_spacing), 
+     (i * (slot_width + horizontal_spacing) + horizontal_spacing + slot_width, vertical_spacing + 2 * slot_height + row_spacing))
+    for i in range(4)
+]
+
+# Function to detect if a slot is occupied
+def is_occupied(slot, frame):
+    (x1, y1), (x2, y2) = slot
+    slot_region = frame[y1:y2, x1:x2]
+    gray_slot = cv2.cvtColor(slot_region, cv2.COLOR_BGR2GRAY)
+    blurred_slot = cv2.GaussianBlur(gray_slot, (5, 5), 0)
+    _, thresholded_slot = cv2.threshold(blurred_slot, 127, 255, cv2.THRESH_BINARY)
+
+    white_pixel_count = cv2.countNonZero(thresholded_slot)
+    total_pixel_count = thresholded_slot.size
+
+    occupancy_threshold = 0.5  # adjust this threshold based on your image
+    occupancy_ratio = white_pixel_count / total_pixel_count
+
+    return occupancy_ratio < occupancy_threshold
+
+# Initialize the Tkinter window
+root = tk.Tk()
+root.title("Parking Slot Detection")
+root.geometry("400x300")  # Set the geometry of the window (width x height)
+
+# Create labels to show slot statuses
+slot_labels = [tk.Label(root, text=f"Slot {i+1}: Checking...", font=("Helvetica", 16)) for i in range(8)]
+for label in slot_labels:
+    label.pack()
+
+# Initialize the phone-like window
+phone_window = tk.Toplevel(root)
+phone_window.title("Parking Slots Phone View")
+phone_window.geometry("200x400")
+
+# Create a canvas to represent the slots
+canvas = tk.Canvas(phone_window, width=200, height=300)
+canvas.pack()
+
+# Create rectangles to represent the parking slots on the phone window
+phone_slots = [
+    canvas.create_rectangle(20, i * 60 + 20, 80, i * 60 + 70, fill="green") for i in range(4)
+] + [
+    canvas.create_rectangle(100, i * 60 + 20, 160, i * 60 + 70, fill="green") for i in range(4)
+]
+
+# Label to show the number of available slots
+available_label = tk.Label(phone_window, text="Available slots: 8", font=("Helvetica", 16))
+available_label.pack()
+
+# Function to update the Tkinter window with the slot statuses
+def update_statuses():
+    ret, frame = cap.read()
+    if not ret:
+        print("Error: Failed to capture image")
+        return
+
+    available_slots = 0
+
+    for i, slot in enumerate(slots):
+        if is_occupied(slot, frame):
+            color = (0, 0, 255)  # Red for occupied
+            label_text = f"Slot {i+1}: Occupied"
+            canvas.itemconfig(phone_slots[i], fill="red")
+        else:
+            color = (0, 255, 0)  # Green for available
+            label_text = f"Slot {i+1}: Available"
+            canvas.itemconfig(phone_slots[i], fill="green")
+            available_slots += 1
+
+        (x1, y1), (x2, y2) = slot
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        slot_labels[i].config(text=label_text)
+
+    available_label.config(text=f"Available slots: {available_slots}")
+    
+    cv2.imshow("Parking Slot Detection", frame)
+    root.after(100, update_statuses)
+
+# Start capturing video from the webcam
+cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("Error: Could not open video stream from webcam.")
+    exit()
+
+# Start the Tkinter update loop
+root.after(100, update_statuses)
+root.mainloop()
+
+# Release the webcam and close the OpenCV window
+cap.release()
+cv2.destroyAllWindows()
